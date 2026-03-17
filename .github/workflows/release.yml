@@ -130,6 +130,16 @@ jobs:
           path: release
           merge-multiple: true
 
+      - name: Create version tag
+        run: |
+          # 生成版本号（基于当前日期和时间）
+          VERSION_TAG="v$(date +'%Y.%m.%d')"
+          echo "Creating tag $VERSION_TAG"
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git tag $VERSION_TAG
+          git push origin $VERSION_TAG
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
