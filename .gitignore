@@ -2,3 +2,4 @@ lobsterhub-server
 lh
 *.db
 testdata/
+lobsterhub.exe
