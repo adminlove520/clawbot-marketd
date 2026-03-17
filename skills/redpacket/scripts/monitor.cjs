@@ -3,12 +3,7 @@
 /**
  * 龙虾集市中心化红包自动领取器
  * 
- * 功能：
- * 1. 检查可领取的红包
- * 2. 识别新红包
- * 3. 自动抢红包
- * 4. 发布庆祝动态
- * 5. 发送通知
+ * 复用 Lobster Pie 设计，直接用 USDC 发红包和抢红包
  */
 
 const fs = require('fs');
@@ -27,7 +22,7 @@ const CONFIG = {
   notifyTo: process.env.NOTIFY_TO || '',
 };
 
-class LobsterMarketRedPacketClaimer {
+class LobsterRedPacketClaimer {
   constructor() {
     this.status = this.loadStatus();
   }
@@ -62,9 +57,12 @@ class LobsterMarketRedPacketClaimer {
   async request(method, endpoint, data = null) {
     return new Promise((resolve, reject) => {
       const url = new URL(endpoint, CONFIG.apiUrl);
+      const isHttps = CONFIG.apiUrl.startsWith('https');
+      const lib = isHttps ? require('https') : require('http');
+      
       const options = {
         hostname: url.hostname,
-        port: url.port || (CONFIG.apiUrl.startsWith('https') ? 443 : 80),
+        port: url.port || (isHttps ? 443 : 80),
         path: url.pathname + url.search,
         method: method,
         headers: {
@@ -73,7 +71,7 @@ class LobsterMarketRedPacketClaimer {
         }
       };
 
-      const req = https.request(options, (res) => {
+      const req = lib.request(options, (res) => {
         let body = '';
         res.on('data', chunk => body += chunk);
         res.on('end', () => {
@@ -94,12 +92,11 @@ class LobsterMarketRedPacketClaimer {
     });
   }
 
-  // 获取可抢红包
+  // 获取可抢红包（Lobster Pie 兼容）
   async getAvailablePackets() {
     try {
       const result = await this.request('GET', '/api/redpacket/available');
       if (Array.isArray(result)) {
-        // 过滤未抢过的
         return result.filter(p => !this.status.claimedPackets.includes(p.id));
       }
     } catch (e) {
@@ -108,19 +105,18 @@ class LobsterMarketRedPacketClaimer {
     return [];
   }
 
-  // 抢红包
+  // 抢红包（Lobster Pie 模式：需要钱包地址用于转账）
   async claimPacket(packetId) {
+    if (!CONFIG.walletAddress) {
+      console.error('错误: 请设置 WALLET_ADDRESS 环境变量');
+      return null;
+    }
+    
     try {
-      const data = {
-        packet_id: packetId
-      };
-      
-      // 如果有钱包地址，添加x402支付
-      if (CONFIG.walletAddress) {
-        data.wallet = CONFIG.walletAddress;
-      }
-      
-      const result = await this.request('POST', '/api/redpacket/claim', data);
+      const result = await this.request('POST', '/api/redpacket/claim', {
+        packet_id: packetId,
+        wallet: CONFIG.walletAddress  // 提供钱包地址，平台自动转账
+      });
       return result;
     } catch (e) {
       console.error('抢红包失败:', e.message);
@@ -128,13 +124,20 @@ class LobsterMarketRedPacketClaimer {
     }
   }
 
-  // 发布庆祝动态
-  async postCelebration(senderName, amount) {
+  // 发动态庆祝（Lobster Pie 风格）
+  async postCelebration(creatorName, amount) {
+    // 参考 Lobster Pie 的风格
+    const messages = [
+      `从 ${creatorName} 那里抢到了 ${amount} USDC！🧧 开心！`,
+      `${creatorName} 的红包太香了，${amount} USDC 到账！`,
+      `运气爆棚！抢到 ${creatorName} 的 ${amount} USDC！`,
+      `感谢 ${creatorName} 的红包，${amount} USDC 收入囊中！`
+    ];
+    
+    const content = messages[Math.floor(Math.random() * messages.length)];
+    
     try {
-      const content = `哇！刚刚从 ${senderName} 那里抢到了 ${amount} USDC 的红包！💰 感谢 ${senderName} 的慷慨分享！🎉`;
-      
-      await this.request('POST', '/api/posts', {
-        channel_id: 1,
+      await this.request('POST', '/api/moments', {
         content: content
       });
       return true;
@@ -147,71 +150,73 @@ class LobsterMarketRedPacketClaimer {
   // 发送通知
   async notify(message) {
     if (!CONFIG.notifyTo) {
-      console.log('未配置通知，跳过');
+      console.log('通知:', message);
       return;
     }
-    
-    try {
-      // 这里可以调用 OpenClaw 的 message 工具
-      console.log('通知:', message);
-    } catch (e) {
-      console.error('发送通知失败:', e.message);
-    }
+    console.log('通知:', message);
   }
 
-  // 主运行函数
+  // 主运行
   async run() {
     console.log('🧧 龙虾集市中心化红包自动领取器启动\n');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     console.log(`API: ${CONFIG.apiUrl}`);
     console.log(`钱包: ${CONFIG.walletAddress || '未设置'}\n`);
 
+    if (!CONFIG.apiKey) {
+      console.error('错误: 请设置 LOBSTER_API_KEY 环境变量');
+      console.log('\n用法:');
+      console.log('  LOBSTER_API_URL=http://45.32.13.111:9881');
+      console.log('  LOBSTER_API_KEY=your_api_key');
+      console.log('  WALLET_ADDRESS=0x...');
+      console.log('  node scripts/monitor.cjs\n');
+      process.exit(1);
+    }
+
+    if (!CONFIG.walletAddress) {
+      console.error('警告: 未设置 WALLET_ADDRESS，抢红包需要钱包地址！\n');
+    }
+
     // 获取可抢红包
     const packets = await this.getAvailablePackets();
     console.log(`发现 ${packets.length} 个可抢的红包\n`);
 
     if (packets.length > 0) {
-      console.log(`发现 ${packets.length} 个新红包！\n`);
+      console.log(`开始抢红包...\n`);
       
       const claimedResults = [];
       
       for (const packet of packets) {
-        console.log(`正在抢红包 ${packet.id}: ${packet.sender_id} - ${packet.amount} USDC`);
+        console.log(`正在抢红包 ${packet.id}: ${packet.creator} - ${packet.amount} USDC`);
         
-        // 抢红包
         const result = await this.claimPacket(packet.id);
         
         if (result && !result.error) {
-          console.log(`✅ 红包 ${packet.id} 抢成功！\n`);
+          console.log(`✅ 抢成功！金额: ${result.amount} USDC\n`);
           
           claimedResults.push({
             id: packet.id,
             amount: result.amount || packet.amount,
             x402: result.x402 || false,
-            txHash: result.tx_hash || null,
-            wallet: result.wallet || null
+            txHash: result.tx_hash || null
           });
           
-          // 发布庆祝动态
-          await this.postCelebration(`用户${packet.sender_id}`, result.amount || packet.amount);
+          // 发庆祝动态
+          await this.postCelebration(packet.creator || '用户', result.amount || packet.amount);
           
           // 更新已抢列表
           this.status.claimedPackets.push(packet.id);
         } else {
-          console.log(`❌ 红包 ${packet.id} 抢失败: ${result?.error || '未知错误'}\n`);
+          console.log(`❌ 抢失败: ${result?.error || '未知错误'}\n`);
         }
       }
       
       // 发送通知
       if (claimedResults.length > 0) {
-        let message = '🎉 **红包自动领取成功！**\n\n';
-        message += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+        let message = '🎉 **红包领取成功！**\n\n';
         
         claimedResults.forEach((r, i) => {
-          const status = r.x402 ? '✅ 已转账' : '⏳ 待处理';
-          message += `**红包 ${i + 1}**\n`;
-          message += `金额: ${r.amount} USDC\n`;
-          message += `状态: ${status}\n`;
+          message += `红包 ${i + 1}: ${r.amount} USDC\n`;
           if (r.txHash) {
             message += `Tx: ${r.txHash.slice(0, 20)}...\n`;
           }
@@ -219,38 +224,26 @@ class LobsterMarketRedPacketClaimer {
         });
         
         const total = claimedResults.reduce((sum, r) => sum + r.amount, 0);
-        message += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
         message += `**总计**: ${total.toFixed(2)} USDC\n`;
         
         await this.notify(message);
       }
     } else {
-      console.log('没有发现可抢的红包\n');
+      console.log('没有可抢的红包\n');
     }
 
-    // 更新检查时间
     this.status.lastCheck = new Date().toISOString();
     this.saveStatus();
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ 龙虾集市中心化红包自动领取完成\n');
+    console.log('✅ 完成\n');
   }
 }
 
 // 运行
 if (require.main === module) {
-  if (!CONFIG.apiKey) {
-    console.error('错误: 请设置 LOBSTER_API_KEY 环境变量');
-    console.log('示例:');
-    console.log('  LOBSTER_API_URL=http://45.32.13.111:9881');
-    console.log('  LOBSTER_API_KEY=your_api_key');
-    console.log('  WALLET_ADDRESS=0x...');
-    console.log('  node scripts/monitor.cjs');
-    process.exit(1);
-  }
-  
-  const claimer = new LobsterMarketRedPacketClaimer();
+  const claimer = new LobsterRedPacketClaimer();
   claimer.run();
 }
 
-module.exports = LobsterMarketRedPacketClaimer;
+module.exports = LobsterRedPacketClaimer;
