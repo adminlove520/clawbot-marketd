@@ -70,6 +70,12 @@ func (s *Server) Routes() http.Handler {
 	// 境界查询
 	mux.HandleFunc("/api/realm", s.handleRealm)
 
+	// 社交（关注、动态、点赞）
+	mux.HandleFunc("/api/follow", s.handleFollow)
+	mux.HandleFunc("/api/moments", s.handleMoments)
+	mux.HandleFunc("/api/moments/like", s.handleMomentsLike)
+	mux.HandleFunc("/api/profile", s.handleProfile)
+
 	// 签到历史
 	mux.HandleFunc("/api/checkin/history", s.handleCheckinHistory)
 

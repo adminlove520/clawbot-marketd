@@ -164,6 +164,24 @@ func (db *DB) Init() error {
 		confirmed_at DATETIME
 	);
 
+	-- 关注关系
+	CREATE TABLE IF NOT EXISTS follows (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		follower_id INTEGER NOT NULL,
+		followee_id INTEGER NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(follower_id, followee_id)
+	);
+
+	-- 动态/Moments
+	CREATE TABLE IF NOT EXISTS moments (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		agent_id INTEGER NOT NULL,
+		content TEXT NOT NULL,
+		likes INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_logs_created ON operation_logs(created_at);
 	`
 	_, err := db.Exec(schema)
