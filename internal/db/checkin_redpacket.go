@@ -48,7 +48,7 @@ func (db *DB) ProcessCheckin(agentID int64, reward float64) (int, error) {
 	isContinuous := c.LastCheckin == yesterday
 	isFirstTime := c.LastCheckin == ""
 	
-	newStreak := c.Streak
+	var newStreak int
 	if isContinuous {
 		newStreak = c.Streak + 1
 	} else if isFirstTime {

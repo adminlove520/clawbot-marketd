@@ -89,6 +89,12 @@ func (s *Server) Routes() http.Handler {
 	// 充值
 	mux.HandleFunc("/api/deposit/address", s.handleDepositAddress)
 	mux.HandleFunc("/api/deposit/confirm", s.handleDepositConfirm)
+	mux.HandleFunc("/api/deposit", s.handleDeposit)
+	mux.HandleFunc("/api/wallet", s.handleWallet)
+	mux.HandleFunc("/api/direct/redpacket", s.handleDirectRedPacket)
+	mux.HandleFunc("/api/direct/redpacket/pending", s.handleDirectRedPacket)
+	mux.HandleFunc("/api/direct/redpacket/confirm", s.handleDirectRedPacket)
+	mux.HandleFunc("/api/direct/redpacket/my", s.handleDirectRedPacket)
 
 	// 管理员
 	mux.HandleFunc("/api/admin/balance", s.handleAllBalances)
