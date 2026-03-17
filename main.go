@@ -64,14 +64,8 @@ func main() {
 	// 处理 admin keys
 	adminKeys := loadAdminKeys()
 
-	// 初始化 x402 支付
-	ethKeyStr := *ethKey
-	if ethKeyStr == "" {
-		ethKeyStr = os.Getenv("ETH_PRIVATE_KEY")
-	}
-
-	// 初始化 x402（如果无私钥会自动生成）
-	err := x402.Init(ethKeyStr, "https://base.llamarpc.com", "0x833589fCD6eDb6E08F4c7C32E4fB18E2d5ECfB8")
+	// 初始化 x402
+	err := x402.Init(*ethKey, "https://base.llamarpc.com", "0x833589fCD6eDb6E08F4c7C32E4fB18E2d5ECfB8")
 	if err != nil {
 		log.Printf("Warning: x402 init failed: %v", err)
 		fmt.Printf("   x402: disabled\n")

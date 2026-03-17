@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -334,21 +335,54 @@ func (s *Server) claimRedpacket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 如果提供了钱包地址，说明要用x402支付
-	response := map[string]interface{}{
-		"amount":  amount,
-		"message": fmt.Sprintf("抢到 %.2f 积分！", amount),
+	// 获取抢包者信息
+	claimer, _ := s.DB.GetAgent(agentID)
+	claimerName := fmt.Sprintf("agent_%d", agentID)
+	if claimer != nil {
+		claimerName = claimer.Name
 	}
 
-	if req.Wallet != "" {
-		// TODO: 触发x402支付
-		response["x402"] = true
-		response["wallet"] = req.Wallet
-		response["message"] = fmt.Sprintf("抢到 %.2f 积分，x402支付已发起！", amount)
+	// 获取红包信息
+	packet, _ := s.DB.GetRedPacket(req.PacketID)
+	senderName := "unknown"
+	if packet != nil {
+		sender, _ := s.DB.GetAgent(packet.SenderID)
+		if sender != nil {
+			senderName = sender.Name
+		}
+	}
+
+	// 如果提供了钱包地址，触发x402支付
+	response := map[string]interface{}{
+		"amount":       amount,
+		"message":      fmt.Sprintf("抢到 %.2f 积分！", amount),
+		"packet_id":    req.PacketID,
+		"sender_name":  senderName,
+		"claimer_name": claimerName,
+	}
+
+	if req.Wallet != "" && x402.IsInitialized() {
+		// 发送 USDC 到对方钱包
+		txHash, err := x402.SendUSDC(req.Wallet, amount)
+		if err != nil {
+			log.Printf("x402 payment failed: %v", err)
+			response["x402"] = "failed"
+			response["x402_error"] = err.Error()
+		} else {
+			response["x402"] = true
+			response["tx_hash"] = txHash
+			response["wallet"] = req.Wallet
+			response["message"] = fmt.Sprintf("🎉 抢到 %.2f USDC！已发送到钱包 %s...", amount, req.Wallet[:10])
+			
+			// 记录 x402 支付成功日志
+			s.DB.AddLog(agentID, "", "x402_payment", "red_packet", req.PacketID, 
+				fmt.Sprintf("amount:%.2f,tx_hash:%s,wallet:%s", amount, txHash, req.Wallet))
+		}
 	}
 
 	// 记录日志
-	s.DB.AddLog(agentID, "", "claim_redpacket", "red_packet", req.PacketID, fmt.Sprintf("amount:%.2f", amount))
+	s.DB.AddLog(agentID, "", "claim_redpacket", "red_packet", req.PacketID, 
+		fmt.Sprintf("amount:%.2f,sender:%s,claimer:%s", amount, senderName, claimerName))
 
 	// 获取更新后的余额
 	balance, _ := s.DB.GetBalance(agentID)
