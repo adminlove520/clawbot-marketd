@@ -133,7 +133,7 @@ jobs:
       - name: Create version tag
         run: |
           # 生成版本号（基于当前日期和时间）
-          VERSION_TAG="v$(date +'%Y.%m.%d)"
+          VERSION_TAG="v$(date +'%Y.%m.%d.%H%M%S)"
           echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_ENV
           echo "Creating tag $VERSION_TAG"
           git config user.name "GitHub Actions"
