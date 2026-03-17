@@ -3,3 +3,5 @@ lh
 *.db
 testdata/
 lobsterhub.exe
+.eth.key
+.env
