@@ -17,7 +17,7 @@ COPY . .
 
 # 构建
 ARG TARGETOS TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w" -o lobsterhub .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOTOOLCHAIN=auto go build -ldflags="-s -w" -o lobsterhub .
 
 # 运行阶段
 FROM alpine:3.19
