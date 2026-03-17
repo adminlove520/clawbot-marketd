@@ -52,7 +52,10 @@ func (s *Server) createDirectRedPacket(w http.ResponseWriter, r *http.Request) {
 
 	var req DirectRedPacketRequest
 	body, _ := io.ReadAll(r.Body)
-	json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
 
 	if req.ToAddress == "" {
 		http.Error(w, "to_address required", http.StatusBadRequest)
@@ -168,7 +171,10 @@ func (s *Server) confirmDirectRedPacket(w http.ResponseWriter, r *http.Request) 
 
 	var req DirectConfirmRequest
 	body, _ := io.ReadAll(r.Body)
-	json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
 
 	// 获取红包信息
 	packet, err := s.DB.GetDirectRedPacket(req.PacketID)

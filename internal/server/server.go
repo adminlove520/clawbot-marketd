@@ -113,7 +113,16 @@ func (s *Server) authenticate(r *http.Request) (int64, error) {
 }
 
 func (s *Server) requireAdmin(r *http.Request) bool {
-	return auth.ExtractToken(r) == s.AdminKeys[0]
+	token := auth.ExtractToken(r)
+	if token == "" || len(s.AdminKeys) == 0 {
+		return false
+	}
+	for _, k := range s.AdminKeys {
+		if token == k {
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

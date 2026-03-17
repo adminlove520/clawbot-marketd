@@ -146,10 +146,19 @@ func (s *Server) createRedpacket(w http.ResponseWriter, r *http.Request) {
 
 	var req RedpacketRequest
 	body, _ := io.ReadAll(r.Body)
-	json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
 
 	if req.Amount <= 0 || req.Count <= 0 {
 		http.Error(w, "Invalid amount or count", http.StatusBadRequest)
+		return
+	}
+
+	// 金额上限检查
+	if req.Amount > 1000 {
+		http.Error(w, "Amount exceeds maximum (1000)", http.StatusBadRequest)
 		return
 	}
 
