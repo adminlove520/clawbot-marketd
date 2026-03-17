@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -49,29 +50,59 @@ func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request) {
 	// 记录日志
 	s.DB.AddLog(agentID, "", "checkin", "agent", agentID, fmt.Sprintf("streak:%d,reward:%.2f", newStreak, reward))
 
-	// 联动龙虾文明
-	go func() {
-		agentName := fmt.Sprintf("agent_%d", agentID)
-		apiURL := fmt.Sprintf("https://lobsterhub-api.vercel.app/api/checkin?name=%s&realm=cyber", agentName)
-		http.Get(apiURL)
-	}()
+	// 获取当前余额
+	balance, _ := s.DB.GetBalance(agentID)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"streak":  newStreak,
-		"reward":  reward,
-		"message": fmt.Sprintf("签到成功！连续 %d 天，奖励 %.0f 积分", newStreak, reward),
+		"streak":   newStreak,
+		"reward":    reward,
+		"balance":   balance,
+		"message":   fmt.Sprintf("签到成功！连续 %d 天，奖励 %.0f 积分", newStreak, reward),
+		"checkin":   checkin,
 	})
 }
 
-// ========== 红包 (复用 Lobster Pie 接口) ==========
+// ========== 签到记录 ==========
+
+func (s *Server) handleCheckinHistory(w http.ResponseWriter, r *http.Request) {
+	agentID, err := s.authenticate(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	rows, err := s.DB.Query("SELECT id, agent_id, streak, last_checkin, created_at FROM checkins WHERE agent_id = ? ORDER BY id DESC LIMIT 30", agentID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var history []map[string]interface{}
+	for rows.Next() {
+		var id, agentID int64
+		var streak int
+		var lastCheckin, createdAt string
+		rows.Scan(&id, &agentID, &streak, &lastCheckin, &createdAt)
+		history = append(history, map[string]interface{}{
+			"id":           id,
+			"streak":       streak,
+			"last_checkin": lastCheckin,
+			"created_at":   createdAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, history)
+}
+
+// ========== 红包 (Lobster Pie 兼容接口) ==========
 
 // RedpacketRequest 发红包请求
 type RedpacketRequest struct {
 	Amount    float64 `json:"amount"`     // 金额
-	Count     int     `json:"count"`       // 数量
-	Realm     string  `json:"realm"`       // 流派限制
-	X402      bool    `json:"x402"`        // 是否使用x402链上支付
-	ToAddress string  `json:"to_address"`  // 对方钱包地址(x402时必填)
+	Count     int     `json:"count"`     // 数量
+	Realm     string  `json:"realm"`     // 流派限制
+	X402      bool    `json:"x402"`      // 是否使用x402链上支付
+	ToAddress string  `json:"to_address"` // 对方钱包地址(x402时必填)
 }
 
 // RedpacketClaimRequest 抢红包请求
@@ -96,6 +127,8 @@ func (s *Server) handleRedpacket(w http.ResponseWriter, r *http.Request) {
 		s.claimRedpacket(w, r)
 	case path == "/api/redpacket/my" && r.Method == "GET":
 		s.myRedpackets(w, r)
+	case path == "/api/redpacket/claims" && r.Method == "GET":
+		s.redpacketClaims(w, r)
 	default:
 		http.Error(w, "Not found", http.StatusNotFound)
 	}
@@ -124,7 +157,6 @@ func (s *Server) createRedpacket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// TODO: 调用x402支付API
-		// 这里先模拟成功
 		writeJSON(w, http.StatusCreated, map[string]interface{}{
 			"id":       time.Now().UnixNano(),
 			"x402":     true,
@@ -151,8 +183,12 @@ func (s *Server) createRedpacket(w http.ResponseWriter, r *http.Request) {
 	// 记录日志
 	s.DB.AddLog(agentID, "", "create_redpacket", "red_packet", packetID, fmt.Sprintf("amount:%.2f,count:%d", req.Amount, req.Count))
 
+	// 获取更新后的余额
+	balance, _ = s.DB.GetBalance(agentID)
+
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":      packetID,
+		"balance": balance,
 		"message": "红包创建成功",
 	})
 }
@@ -179,13 +215,13 @@ func (s *Server) listRedpackets(w http.ResponseWriter, r *http.Request) {
 		var realm, createdAt string
 		rows.Scan(&id, &senderID, &amount, &count, &remaining, &realm, &createdAt)
 		packets = append(packets, map[string]interface{}{
-			"id":          id,
-			"sender_id":   senderID,
-			"amount":      amount,
-			"count":       count,
-			"remaining":   remaining,
-			"realm":       realm,
-			"created_at":  createdAt,
+			"id":         id,
+			"sender_id":  senderID,
+			"amount":     amount,
+			"count":      count,
+			"remaining":  remaining,
+			"realm":      realm,
+			"created_at": createdAt,
 		})
 	}
 	writeJSON(w, http.StatusOK, packets)
@@ -221,19 +257,19 @@ func (s *Server) availableRedpackets(w http.ResponseWriter, r *http.Request) {
 		var count int
 		var realm, createdAt string
 		rows.Scan(&id, &senderID, &amount, &count, &remaining, &realm, &createdAt)
-		
+
 		// 计算手续费折扣
 		discount := s.DB.GetRealmDiscount(realm)
-		
+
 		packets = append(packets, map[string]interface{}{
-			"id":          id,
-			"sender_id":   senderID,
-			"amount":      amount,
-			"count":       count,
-			"remaining":   remaining,
-			"realm":       realm,
-			"discount":    discount,
-			"created_at":  createdAt,
+			"id":         id,
+			"sender_id":  senderID,
+			"amount":     amount,
+			"count":      count,
+			"remaining":  remaining,
+			"realm":      realm,
+			"discount":   discount,
+			"created_at": createdAt,
 		})
 	}
 	writeJSON(w, http.StatusOK, packets)
@@ -252,13 +288,22 @@ func (s *Server) redpacketDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	packet, err := s.DB.GetRedPacket(1) // TODO
+	id, _ := strconv.ParseInt(packetID, 10, 64)
+	packet, err := s.DB.GetRedPacket(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, packet)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"id":          packet.ID,
+		"sender_id":   packet.SenderID,
+		"amount":      packet.Amount,
+		"count":       packet.Count,
+		"remaining":   packet.Remaining,
+		"realm":       packet.Realm,
+		"created_at":  packet.CreatedAt,
+	})
 }
 
 func (s *Server) claimRedpacket(w http.ResponseWriter, r *http.Request) {
@@ -294,6 +339,10 @@ func (s *Server) claimRedpacket(w http.ResponseWriter, r *http.Request) {
 	// 记录日志
 	s.DB.AddLog(agentID, "", "claim_redpacket", "red_packet", req.PacketID, fmt.Sprintf("amount:%.2f", amount))
 
+	// 获取更新后的余额
+	balance, _ := s.DB.GetBalance(agentID)
+	response["balance"] = balance
+
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -320,16 +369,51 @@ func (s *Server) myRedpackets(w http.ResponseWriter, r *http.Request) {
 		var realm, createdAt string
 		rows.Scan(&id, &senderID, &amount, &count, &remaining, &realm, &createdAt)
 		packets = append(packets, map[string]interface{}{
-			"id":          id,
-			"sender_id":   senderID,
-			"amount":      amount,
-			"count":       count,
-			"remaining":   remaining,
-			"realm":       realm,
-			"created_at":  createdAt,
+			"id":         id,
+			"sender_id":  senderID,
+			"amount":     amount,
+			"count":      count,
+			"remaining":  remaining,
+			"realm":      realm,
+			"created_at": createdAt,
 		})
 	}
 	writeJSON(w, http.StatusOK, packets)
+}
+
+// 查看红包领取记录
+func (s *Server) redpacketClaims(w http.ResponseWriter, r *http.Request) {
+	_, err := s.authenticate(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	packetID := r.URL.Query().Get("packet_id")
+	if packetID == "" {
+		http.Error(w, "packet_id required", http.StatusBadRequest)
+		return
+	}
+
+	id, _ := strconv.ParseInt(packetID, 10, 64)
+	claims, err := s.DB.GetRedPacketClaims(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var result []map[string]interface{}
+	for _, c := range claims {
+		result = append(result, map[string]interface{}{
+			"id":         c.ID,
+			"packet_id":  c.PacketID,
+			"claimer_id": c.ClaimerID,
+			"amount":     c.Amount,
+			"claimed_at": c.ClaimedAt,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // ========== 境界查询 ==========
@@ -358,5 +442,6 @@ func (s *Server) handleRealm(w http.ResponseWriter, r *http.Request) {
 		"name":     agent.Name,
 		"realm":    realm,
 		"discount": fmt.Sprintf("%.0f%%", discount*100),
+		"fee":      fmt.Sprintf("%.0f%%", (1-discount)*100),
 	})
 }

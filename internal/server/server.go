@@ -64,6 +64,12 @@ func (s *Server) Routes() http.Handler {
 	// 境界查询
 	mux.HandleFunc("/api/realm", s.handleRealm)
 
+	// 签到历史
+	mux.HandleFunc("/api/checkin/history", s.handleCheckinHistory)
+
+	// 红包领取记录
+	mux.HandleFunc("/api/redpacket/claims", s.handleRedpacket)
+
 	mux.HandleFunc("/admin/logs", s.handleAdminLogs)
 	mux.HandleFunc("/admin/delete-agent", s.handleAdminDeleteAgent)
 	mux.HandleFunc("/admin/delete-task", s.handleAdminDeleteTask)
