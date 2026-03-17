@@ -9,7 +9,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
+  # Linux & macOS 构建（Linux runner）
+  build-unix:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -22,25 +23,59 @@ jobs:
         with:
           go-version: '1.21'
 
-      # 编译各平台二进制
-      - name: Build for Windows
-        run: |
-          mkdir -p release
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-s -w" -o release/lobsterhub-windows-amd64.exe .
-          GOOS=windows GOARCH=arm64 CGO_ENABLED=1 go build -ldflags="-s -w" -o release/lobsterhub-windows-arm64.exe .
-
       - name: Build for Linux
         run: |
+          mkdir -p release
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o release/lobsterhub-linux-amd64 .
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o release/lobsterhub-linux-arm64 .
-          GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -ldflags="-s -w" -o release/lobsterhub-linux-386 .
 
       - name: Build for macOS
         run: |
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o release/lobsterhub-darwin-amd64 .
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o release/lobsterhub-darwin-arm64 .
 
-      # 构建 Docker 镜像
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-unix
+          path: release/
+
+  # Windows 构建（Windows runner）
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build for Windows
+        run: |
+          mkdir -p release
+          go build -ldflags="-s -w" -o release/lobsterhub-windows-amd64.exe .
+          go build -ldflags="-s -w" -o release/lobsterhub-windows-arm64.exe .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: release/
+
+  # Docker 构建（独立 job）
+  docker:
+    runs-on: ubuntu-latest
+    needs: build-unix
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -69,7 +104,22 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
 
-      # 创建 GitHub Release
+  # 创建 Release
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-unix, build-windows, docker]
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
