@@ -69,16 +69,14 @@ func main() {
 	if ethKeyStr == "" {
 		ethKeyStr = os.Getenv("ETH_PRIVATE_KEY")
 	}
-	
-	if ethKeyStr != "" {
-		err := x402.Init(ethKeyStr, "https://base.llamarpc.com", "0x833589fCD6eDb6E08F4c7C32E4fB18E2d5ECfB8")
-		if err != nil {
-			log.Printf("Warning: x402 init failed: %v", err)
-		} else {
-			fmt.Printf("   x402: enabled, from %s\n", x402.GetFromAddress())
-		}
+
+	// 初始化 x402（如果无私钥会自动生成）
+	err := x402.Init(ethKeyStr, "https://base.llamarpc.com", "0x833589fCD6eDb6E08F4c7C32E4fB18E2d5ECfB8")
+	if err != nil {
+		log.Printf("Warning: x402 init failed: %v", err)
+		fmt.Printf("   x402: disabled\n")
 	} else {
-		fmt.Printf("   x402: disabled (no ETH_PRIVATE_KEY)\n")
+		fmt.Printf("   x402: enabled, from %s\n", x402.GetFromAddress())
 	}
 
 	// 初始化数据库

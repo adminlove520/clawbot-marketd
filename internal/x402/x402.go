@@ -21,9 +21,14 @@ var client *ethclient.Client
 var privateKey *ecdsa.PrivateKey
 var fromAddr common.Address
 
-// Init 初始化 x402
+// Init 初始化 x402 支付
 func Init(privateKeyHex, rpcURL, usdcAddr string) error {
-	// 如果没有提供私钥，生成新的
+	// 优先从文件加载
+	if privateKeyHex == "" {
+		privateKeyHex = loadKeyFromFile()
+	}
+
+	// 如果还没有，生成新的
 	if privateKeyHex == "" {
 		newKey, err := GenerateNewWallet()
 		if err != nil {
@@ -48,9 +53,16 @@ func Init(privateKeyHex, rpcURL, usdcAddr string) error {
 	return nil
 }
 
+func loadKeyFromFile() string {
+	data, err := os.ReadFile(".eth.key")
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
 // GenerateNewWallet 生成新钱包并保存
 func GenerateNewWallet() (string, error) {
-	// 生成随机私钥
 	key, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	if err != nil {
 		return "", err
@@ -58,30 +70,16 @@ func GenerateNewWallet() (string, error) {
 
 	privateKeyHex := hex.EncodeToString(key.D.Bytes())
 
-	// 保存到 .eth.key 文件
 	err = os.WriteFile(".eth.key", []byte(privateKeyHex), 0600)
 	if err != nil {
-		log.Printf("Warning: failed to save key to file: %v", err)
+		log.Printf("Warning: failed to save key: %v", err)
 	}
 
 	addr := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	log.Printf("🆕 New wallet generated: %s", addr)
 	log.Printf("   Private key saved to: .eth.key")
-	log.Printf("   IMPORTANT: Backup this file! It's the only way to recover your funds.")
 
 	return privateKeyHex, nil
-}
-
-// LoadWallet 从文件加载钱包
-func LoadWallet() (string, error) {
-	data, err := os.ReadFile(".eth.key")
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("no wallet found")
-		}
-		return "", err
-	}
-	return string(data), nil
 }
 
 // IsInitialized 检查是否已初始化
@@ -89,7 +87,7 @@ func IsInitialized() bool {
 	return client != nil && privateKey != nil
 }
 
-// GetFromAddress 获取发送地址
+// GetFromAddress 获取发送地址（平台钱包）
 func GetFromAddress() string {
 	if fromAddr == (common.Address{}) {
 		return ""
@@ -97,7 +95,7 @@ func GetFromAddress() string {
 	return fromAddr.Hex()
 }
 
-// SendUSDC 发送 USDC
+// SendUSDC 发送 USDC 到指定地址（用于抢红包）
 func SendUSDC(toAddr string, amount float64) (string, error) {
 	if !IsInitialized() {
 		return "", fmt.Errorf("x402 not initialized")
@@ -107,15 +105,18 @@ func SendUSDC(toAddr string, amount float64) (string, error) {
 		return "", fmt.Errorf("invalid address: %s", toAddr)
 	}
 
+	// USDC 精度 6 位
 	amountInt := new(big.Int).Mul(big.NewInt(int64(amount*math.Pow10(6))), big.NewInt(1))
 
 	usdcAddr := common.HexToAddress("0x833589fCD6eDb6E08F4c7C32E4fB18E2d5ECfB8")
 
+	// 构建 transfer 数据
 	toBytes := common.HexToAddress(toAddr).Bytes()
 	data := make([]byte, 64)
 	copy(data[12:32], toBytes)
 	copy(data[32:64], amountInt.Bytes())
 
+	// 估算 Gas
 	gasLimit := uint64(100000)
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
@@ -127,6 +128,7 @@ func SendUSDC(toAddr string, amount float64) (string, error) {
 		return "", fmt.Errorf("failed to get chain ID: %v", err)
 	}
 
+	// 构建交易
 	tx := types.NewTransaction(0, usdcAddr, big.NewInt(0), gasLimit, gasPrice, data)
 	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKey)
 	if err != nil {
@@ -141,7 +143,7 @@ func SendUSDC(toAddr string, amount float64) (string, error) {
 	return signedTx.Hash().Hex(), nil
 }
 
-// GetUSDCBalance 获取 USDC 余额
+// GetUSDCBalance 查询 USDC 余额
 func GetUSDCBalance(addr string) (float64, error) {
 	if !IsInitialized() {
 		return 0, fmt.Errorf("x402 not initialized")
@@ -160,12 +162,12 @@ func GetUSDCBalance(addr string) (float64, error) {
 	return f, nil
 }
 
-// IsValidAddress 验证地址
+// IsValidAddress 验证地址是否有效
 func IsValidAddress(addr string) bool {
 	return common.IsHexAddress(addr)
 }
 
-// GetETHBalance 获取 ETH 余额
+// GetETHBalance 查询 ETH 余额
 func GetETHBalance(addr string) (float64, error) {
 	if !IsInitialized() {
 		return 0, fmt.Errorf("x402 not initialized")
