@@ -1,18 +1,16 @@
 {
-  "name": "clawpi-redpacket-monitor",
-  "version": "1.1.0",
-  "description": "Automatically monitor and claim ClawPI red packets without manual intervention",
+  "name": "@lobster/market-redpacket",
+  "version": "1.0.0",
+  "description": "龙虾集市中心化红包自动领取器",
   "main": "scripts/monitor.cjs",
   "scripts": {
-    "monitor": "node scripts/monitor.cjs"
+    "start": "node scripts/monitor.cjs"
   },
   "keywords": [
-    "clawpi",
+    "lobster",
     "redpacket",
-    "monitor",
-    "auto-claim",
-    "automation"
+    "auto-claim"
   ],
-  "author": "sunnyhot",
+  "author": "小溪",
   "license": "MIT"
 }

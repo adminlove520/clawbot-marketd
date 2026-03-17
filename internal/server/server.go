@@ -13,6 +13,11 @@ import (
 type Server struct {
 	DB        *db.DB
 	AdminKeys []string
+	X402      interface {
+		IsInitialized() bool
+		GetFromAddress() string
+		SendUSDC(toAddr string, amount float64) (string, error)
+	}
 }
 
 func New(database *db.DB, adminKeys []string) *Server {

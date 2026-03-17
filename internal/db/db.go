@@ -134,6 +134,19 @@ func (db *DB) Init() error {
 		amount REAL NOT NULL,
 		claimed_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	-- 充值记录
+	CREATE TABLE IF NOT EXISTS deposits (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL,
+		amount REAL NOT NULL,
+		tx_hash TEXT UNIQUE NOT NULL,
+		status TEXT DEFAULT 'pending',
+		credits REAL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		confirmed_at DATETIME
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
 	CREATE INDEX IF NOT EXISTS idx_logs_created ON operation_logs(created_at);
 	`
