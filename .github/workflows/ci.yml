@@ -19,8 +19,23 @@ jobs:
           go-version: '1.25'
           cache: true
 
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
       - name: Update dependencies
         run: go mod tidy
+
+      - name: Code quality check
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
 
       - name: Build
         run: go build -v ./...
