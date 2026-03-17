@@ -49,6 +49,7 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+      packages: write
     
     steps:
       - uses: actions/checkout@v4
@@ -118,6 +119,7 @@ jobs:
     needs: [build-unix, build-windows, docker]
     permissions:
       contents: write
+      packages: write
     
     steps:
       - uses: actions/checkout@v4
