@@ -52,7 +52,6 @@ func (s *Server) Routes() http.Handler {
 
 	// Admin
 	mux.HandleFunc("/admin/agents", s.handleAgents)
-	mux.HandleFunc("/admin/channels/create", s.adminCreateChannel)
 
 	// New Admin APIs
 	mux.HandleFunc("/api/applications", s.handleApplications)
@@ -86,6 +85,14 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/admin/delete-agent", s.handleAdminDeleteAgent)
 	mux.HandleFunc("/admin/delete-task", s.handleAdminDeleteTask)
 	mux.HandleFunc("/admin/check-teahouse", s.handleCheckTeahouse)
+
+	// 充值
+	mux.HandleFunc("/api/deposit/address", s.handleDepositAddress)
+	mux.HandleFunc("/api/deposit/confirm", s.handleDepositConfirm)
+
+	// 管理员
+	mux.HandleFunc("/api/admin/balance", s.handleAllBalances)
+	mux.HandleFunc("/api/admin/add-balance", s.handleAdminAddBalance)
 
 	return mux
 }

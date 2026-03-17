@@ -2,120 +2,134 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 )
 
-func (s *Server) adminCreateTask(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+// ========== 充值 USDC ==========
 
+// DepositConfirm 管理员确认充值
+func (s *Server) handleDepositConfirm(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		http.Error(w, "Admin only", http.StatusForbidden)
 		return
 	}
 
 	var req struct {
-		Title           string  `json:"title"`
-		Description     string  `json:"description"`
-		Reward          float64 `json:"reward"`
-		TimeoutMinutes  int     `json:"timeout_minutes"`
+		UserID int64   `json:"user_id"`
+		Amount float64 `json:"amount"`
+		Note   string  `json:"note"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	body, _ := io.ReadAll(r.Body)
+	json.Unmarshal(body, &req)
+
+	if req.UserID == 0 || req.Amount <= 0 {
+		http.Error(w, "invalid params", http.StatusBadRequest)
 		return
 	}
 
-	if req.TimeoutMinutes == 0 {
-		req.TimeoutMinutes = 60
-	}
-
-	result, err := s.DB.Exec(`
-		INSERT INTO tasks (title, description, reward, timeout_minutes, creator_id) 
-		VALUES (?, ?, ?, ?, 0)
-	`, req.Title, req.Description, req.Reward, req.TimeoutMinutes)
+	// 给用户增加余额
+	err := s.DB.AddBalance(req.UserID, req.Amount, "deposit", nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	taskID, _ := result.LastInsertId()
-	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": taskID})
+	// 记录日志
+	s.DB.AddLog(req.UserID, "", "deposit_confirm", "user", req.UserID, 
+		fmt.Sprintf("amount:%.2f,note:%s", req.Amount, req.Note))
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"user_id": req.UserID,
+		"amount":  req.Amount,
+		"message": "充值确认成功",
+	})
 }
 
-func (s *Server) adminReviewTask(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+// GetDepositAddress 获取充值地址
+func (s *Server) handleDepositAddress(w http.ResponseWriter, r *http.Request) {
+	// 返回平台钱包地址
+	addr := "0x63cd57e88c4a7cAEDE11E1220Fd9Fe65040D81c0" // 默认
+	
+	if s.X402 != nil && s.X402.IsInitialized() {
+		addr = s.X402.GetFromAddress()
 	}
 
-	if !s.requireAdmin(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	var req struct {
-		TaskID   int64  `json:"task_id"`
-		Approved bool   `json:"approved"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	var assigneeID int64
-	var reward float64
-	err := s.DB.QueryRow("SELECT assignee_id, reward FROM tasks WHERE id = ? AND status = 'review'", req.TaskID).Scan(&assigneeID, &reward)
-	if err != nil {
-		http.Error(w, "Task not found or not in review", http.StatusNotFound)
-		return
-	}
-
-	status := "failed"
-	if req.Approved {
-		status = "done"
-		if err := s.DB.AddLedgerEntry(assigneeID, reward, "task completed", &req.TaskID); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	_, err = s.DB.Exec("UPDATE tasks SET status = ? WHERE id = ?", status, req.TaskID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": status})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"address":   addr,
+		"network":   "base",
+		"token":     "USDC",
+		"contract":  "0x833589fCD6eDb6E08F4c7C32E4fB18E2d5ECfB8",
+		"guide":     "转账 USDC 到此地址，联系管理员确认充值",
+	})
 }
 
-func (s *Server) adminCreateChannel(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+// ========== 管理员操作 ==========
 
+// AdminAddBalance 管理员给用户增加余额
+func (s *Server) handleAdminAddBalance(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		http.Error(w, "Admin only", http.StatusForbidden)
 		return
 	}
 
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		UserID int64   `json:"user_id"`
+		Amount float64 `json:"amount"`
+		Reason string  `json:"reason"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	body, _ := io.ReadAll(r.Body)
+	json.Unmarshal(body, &req)
+
+	if req.UserID == 0 || req.Amount == 0 {
+		http.Error(w, "invalid params", http.StatusBadRequest)
 		return
 	}
 
-	result, err := s.DB.Exec("INSERT INTO channels (name, description) VALUES (?, ?)", req.Name, req.Description)
+	err := s.DB.AddBalance(req.UserID, req.Amount, req.Reason, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	channelID, _ := result.LastInsertId()
-	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": channelID})
+	s.DB.AddLog(req.UserID, "", "admin_add_balance", "user", req.UserID, 
+		fmt.Sprintf("amount:%.2f,reason:%s", req.Amount, req.Reason))
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"user_id": req.UserID,
+		"amount":  req.Amount,
+	})
+}
+
+// GetAllBalances 查看所有用户余额
+func (s *Server) handleAllBalances(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(r) {
+		http.Error(w, "Admin only", http.StatusForbidden)
+		return
+	}
+
+	rows, err := s.DB.Query("SELECT id, name, balance FROM agents ORDER BY balance DESC")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var users []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var name string
+		var balance float64
+		rows.Scan(&id, &name, &balance)
+		users = append(users, map[string]interface{}{
+			"id":      id,
+			"name":    name,
+			"balance": balance,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, users)
 }
