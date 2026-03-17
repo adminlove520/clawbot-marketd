@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -10,12 +11,12 @@ import (
 )
 
 type Server struct {
-	DB       *db.DB
-	AdminKey string
+	DB        *db.DB
+	AdminKeys []string
 }
 
-func New(database *db.DB, adminKey string) *Server {
-	return &Server{DB: database, AdminKey: adminKey}
+func New(database *db.DB, adminKeys []string) *Server {
+	return &Server{DB: database, AdminKeys: adminKeys}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -47,6 +48,21 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/admin/agents", s.handleAgents)
 	mux.HandleFunc("/admin/channels/create", s.adminCreateChannel)
 
+	// New Admin APIs
+	mux.HandleFunc("/api/applications", s.handleApplications)
+
+	// 签到
+	mux.HandleFunc("/api/checkin", s.handleCheckin)
+
+	// 红包
+	mux.HandleFunc("/api/red-packets", s.handleRedPackets)
+	mux.HandleFunc("/api/red-packets/claim", s.handleClaimRedPacket)
+
+	mux.HandleFunc("/admin/logs", s.handleAdminLogs)
+	mux.HandleFunc("/admin/delete-agent", s.handleAdminDeleteAgent)
+	mux.HandleFunc("/admin/delete-task", s.handleAdminDeleteTask)
+	mux.HandleFunc("/admin/check-teahouse", s.handleCheckTeahouse)
+
 	return mux
 }
 
@@ -60,7 +76,7 @@ func (s *Server) authenticate(r *http.Request) (int64, error) {
 }
 
 func (s *Server) requireAdmin(r *http.Request) bool {
-	return auth.ExtractToken(r) == s.AdminKey
+	return auth.ExtractToken(r) == s.AdminKeys[0]
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -86,5 +102,112 @@ func (s *Server) releaseTimedOutTasks() {
 
 func (s *Server) Start(addr string) error {
 	go s.releaseTimedOutTasks()
+	go s.watchTeahouse() // 启动茶馆发言监控
+	
+	fmt.Printf("🦞 Server starting on %s\n", addr)
 	return http.ListenAndServe(addr, s.Routes())
+}
+
+// ========== 茶馆发言监控 ==========
+
+type TeahouseFeed struct {
+	LastUpdated string `json:"lastUpdated"`
+	Sections    map[string]Section `json:"sections"`
+}
+
+type Section struct {
+	LastCommentID   string   `json:"lastCommentId"`
+	RecentComments []Comment `json:"recentComments"`
+}
+
+type Comment struct {
+	ID        string `json:"id"`
+	Author   string `json:"author"`
+	Preview  string `json:"preview"`
+	CreatedAt string `json:"createdAt"`
+	URL      string `json:"url"`
+}
+
+func (s *Server) watchTeahouse() {
+	lastCommentIDs := make(map[string]string)
+	
+	for {
+		time.Sleep(5 * time.Minute) // 每5分钟检查一次
+		
+		resp, err := http.Get("https://raw.githubusercontent.com/ythx-101/openclaw-qa/main/feeds/teahouse.json")
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		
+		var feed TeahouseFeed
+		if err := json.NewDecoder(resp.Body).Decode(&feed); err != nil {
+			continue
+		}
+		
+		for sectionID, section := range feed.Sections {
+			lastID := lastCommentIDs[sectionID]
+			
+			// 发现新评论
+			if lastID != "" && section.LastCommentID != lastID {
+				// 加经验（调用 lobsterhub-api）
+				for _, comment := range section.RecentComments {
+					if comment.ID == section.LastCommentID && comment.Author != "bot" {
+						s.rewardTeahouseComment(comment.Author, sectionID)
+						break
+					}
+				}
+			}
+			
+			lastCommentIDs[sectionID] = section.LastCommentID
+		}
+	}
+}
+
+func (s *Server) rewardTeahouseComment(author, section string) {
+	// 调用 lobsterhub-api 增加经验
+	apiURL := fmt.Sprintf("https://lobsterhub-api.vercel.app/api/task?name=%s&task=茶馆发言-%s&exp=10", 
+		author, section)
+	http.Get(apiURL)
+	
+	// 记录日志
+	s.DB.AddLog(0, "system", "teahouse_reward", "user", 0, "author:"+author+",section:"+section)
+}
+
+// 手动触发茶馆检查
+func (s *Server) handleCheckTeahouse(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	
+	// 手动触发一次检查
+	go func() {
+		s.checkTeahouseOnce()
+	}()
+	
+	writeJSON(w, http.StatusOK, map[string]string{"status": "checking"})
+}
+
+func (s *Server) checkTeahouseOnce() {
+	resp, err := http.Get("https://raw.githubusercontent.com/ythx-101/openclaw-qa/main/feeds/teahouse.json")
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	
+	var feed TeahouseFeed
+	if err := json.NewDecoder(resp.Body).Decode(&feed); err != nil {
+		return
+	}
+	
+	for sectionID, section := range feed.Sections {
+		// 只处理最新一条评论
+		for _, comment := range section.RecentComments {
+			if comment.Author != "bot" {
+				s.rewardTeahouseComment(comment.Author, sectionID)
+				break
+			}
+		}
+	}
 }
