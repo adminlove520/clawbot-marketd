@@ -11,6 +11,7 @@ import (
 
 	"github.com/ythx-101/lobsterhub/internal/db"
 	"github.com/ythx-101/lobsterhub/internal/server"
+	"github.com/ythx-101/lobsterhub/internal/x402"
 )
 
 // 生成随机 admin key
@@ -22,7 +23,6 @@ func generateAdminKey() string {
 
 // 从环境变量或文件加载 admin keys
 func loadAdminKeys() []string {
-	// 优先从环境变量读取
 	keysStr := os.Getenv("ADMIN_KEYS")
 	if keysStr != "" {
 		keys := strings.Split(keysStr, ",")
@@ -32,7 +32,6 @@ func loadAdminKeys() []string {
 		return keys
 	}
 
-	// 尝试读取 .env 文件
 	envFile := ".env"
 	if data, err := os.ReadFile(envFile); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
@@ -50,7 +49,6 @@ func loadAdminKeys() []string {
 		}
 	}
 
-	// 自动生成
 	key := generateAdminKey()
 	fmt.Printf("🦞 Auto-generated admin key: %s\n", key)
 	fmt.Printf("   Save this key! Set ADMIN_KEYS env or create .env file to persist.\n")
@@ -60,10 +58,28 @@ func loadAdminKeys() []string {
 func main() {
 	addr := flag.String("addr", ":8080", "server address")
 	dbPath := flag.String("db", "lobsterhub.db", "database path")
+	ethKey := flag.String("eth-key", "", "Ethereum private key for x402 payments")
 	flag.Parse()
 
 	// 处理 admin keys
 	adminKeys := loadAdminKeys()
+
+	// 初始化 x402 支付
+	ethKeyStr := *ethKey
+	if ethKeyStr == "" {
+		ethKeyStr = os.Getenv("ETH_PRIVATE_KEY")
+	}
+	
+	if ethKeyStr != "" {
+		err := x402.Init(ethKeyStr, "https://base.llamarpc.com", "0x833589fCD6eDb6E08F4c7C32E4fB18E2d5ECfB8")
+		if err != nil {
+			log.Printf("Warning: x402 init failed: %v", err)
+		} else {
+			fmt.Printf("   x402: enabled, from %s\n", x402.GetFromAddress())
+		}
+	} else {
+		fmt.Printf("   x402: disabled (no ETH_PRIVATE_KEY)\n")
+	}
 
 	// 初始化数据库
 	database, err := db.Open(*dbPath)
@@ -72,15 +88,12 @@ func main() {
 	}
 	defer database.Close()
 
-	// 初始化表
 	if err := database.Init(); err != nil {
 		log.Fatalf("Failed to init database: %v", err)
 	}
 
-	// 创建服务器
 	srv := server.New(database, adminKeys)
 
-	// 启动服务器
 	fmt.Printf("🦞 LobsterHub starting on %s\n", *addr)
 	fmt.Printf("   Admin keys: %d key(s)\n", len(adminKeys))
 	fmt.Printf("   Database: %s\n", *dbPath)

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/ythx-101/lobsterhub/internal/x402"
 )
 
 // ========== 签到 ==========
@@ -54,11 +56,11 @@ func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request) {
 	balance, _ := s.DB.GetBalance(agentID)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"streak":   newStreak,
-		"reward":    reward,
-		"balance":   balance,
-		"message":   fmt.Sprintf("签到成功！连续 %d 天，奖励 %.0f 积分", newStreak, reward),
-		"checkin":   checkin,
+		"streak":  newStreak,
+		"reward":  reward,
+		"balance": balance,
+		"message": fmt.Sprintf("签到成功！连续 %d 天，奖励 %.0f 积分", newStreak, reward),
+		"checkin": checkin,
 	})
 }
 
@@ -99,9 +101,9 @@ func (s *Server) handleCheckinHistory(w http.ResponseWriter, r *http.Request) {
 // RedpacketRequest 发红包请求
 type RedpacketRequest struct {
 	Amount    float64 `json:"amount"`     // 金额
-	Count     int     `json:"count"`     // 数量
-	Realm     string  `json:"realm"`     // 流派限制
-	X402      bool    `json:"x402"`      // 是否使用x402链上支付
+	Count     int     `json:"count"`      // 数量
+	Realm     string  `json:"realm"`      // 流派限制
+	X402      bool    `json:"x402"`       // 是否使用x402链上支付
 	ToAddress string  `json:"to_address"` // 对方钱包地址(x402时必填)
 }
 
@@ -156,12 +158,21 @@ func (s *Server) createRedpacket(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "to_address required for x402 payment", http.StatusBadRequest)
 			return
 		}
-		// TODO: 调用x402支付API
+
+		// 调用 x402 发送 USDC
+		txHash, err := x402.SendUSDC(req.ToAddress, req.Amount)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("x402 payment failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
 		writeJSON(w, http.StatusCreated, map[string]interface{}{
-			"id":       time.Now().UnixNano(),
-			"x402":     true,
-			"tx_hash":  "0x" + fmt.Sprintf("%x", time.Now().UnixNano()),
-			"message":  "x402支付请求已发起",
+			"id":      time.Now().UnixNano(),
+			"x402":    true,
+			"tx_hash": txHash,
+			"amount":  req.Amount,
+			"to":      req.ToAddress,
+			"message": fmt.Sprintf("x402支付成功！%.2f USDC 已发送到 %s", req.Amount, req.ToAddress[:10]+"..."),
 		})
 		return
 	}
@@ -296,13 +307,13 @@ func (s *Server) redpacketDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id":          packet.ID,
-		"sender_id":   packet.SenderID,
-		"amount":      packet.Amount,
-		"count":       packet.Count,
-		"remaining":   packet.Remaining,
-		"realm":       packet.Realm,
-		"created_at":  packet.CreatedAt,
+		"id":         packet.ID,
+		"sender_id":  packet.SenderID,
+		"amount":     packet.Amount,
+		"count":      packet.Count,
+		"remaining":  packet.Remaining,
+		"realm":      packet.Realm,
+		"created_at": packet.CreatedAt,
 	})
 }
 
