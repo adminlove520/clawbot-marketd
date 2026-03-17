@@ -54,9 +54,15 @@ func (s *Server) Routes() http.Handler {
 	// 签到
 	mux.HandleFunc("/api/checkin", s.handleCheckin)
 
-	// 红包
-	mux.HandleFunc("/api/red-packets", s.handleRedPackets)
-	mux.HandleFunc("/api/red-packets/claim", s.handleClaimRedPacket)
+	// 红包 (Lobster Pie 兼容接口)
+	mux.HandleFunc("/api/redpacket", s.handleRedpacket)
+	mux.HandleFunc("/api/redpacket/available", s.handleRedpacket)
+	mux.HandleFunc("/api/redpacket/detail", s.handleRedpacket)
+	mux.HandleFunc("/api/redpacket/claim", s.handleRedpacket)
+	mux.HandleFunc("/api/redpacket/my", s.handleRedpacket)
+
+	// 境界查询
+	mux.HandleFunc("/api/realm", s.handleRealm)
 
 	mux.HandleFunc("/admin/logs", s.handleAdminLogs)
 	mux.HandleFunc("/admin/delete-agent", s.handleAdminDeleteAgent)

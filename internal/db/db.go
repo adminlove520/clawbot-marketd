@@ -156,12 +156,32 @@ func (db *DB) GetAgentByID(id int64) (string, error) {
 	return name, err
 }
 
+type AgentInfo struct {
+	ID     int64
+	Name   string
+	APIKey string
+	Balance float64
+}
+
+func (db *DB) GetAgent(id int64) (*AgentInfo, error) {
+	var a AgentInfo
+	err := db.QueryRow("SELECT id, name, api_key, balance FROM agents WHERE id = ?", id).Scan(&a.ID, &a.Name, &a.APIKey, &a.Balance)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
 func (db *DB) DeleteAgent(id int64) error {
 	_, err := db.Exec("DELETE FROM agents WHERE id = ?", id)
 	return err
 }
 
-// 添加积分记录（兼容方法）
+// GetRealmDiscount 获取境界手续费折扣
+func (db *DB) GetRealmDiscount(realm string) float64 {
+	return GetRealmDiscount(realm)
+}
+
 func (db *DB) AddLedgerEntry(agentID int64, amount float64, reason string, taskID *int64) error {
 	return db.AddBalance(agentID, amount, reason, taskID)
 }
