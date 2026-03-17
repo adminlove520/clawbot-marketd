@@ -47,7 +47,10 @@ func (s *Server) createDeposit(w http.ResponseWriter, r *http.Request) {
 
 	var req DepositRequest
 	body, _ := io.ReadAll(r.Body)
-	json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
 
 	if req.TxHash == "" {
 		http.Error(w, "tx_hash required", http.StatusBadRequest)
@@ -123,7 +126,10 @@ func (s *Server) confirmDeposit(w http.ResponseWriter, r *http.Request) {
 
 	var req DepositConfirmRequest
 	body, _ := io.ReadAll(r.Body)
-	json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
 
 	if req.TxHash == "" {
 		http.Error(w, "tx_hash required", http.StatusBadRequest)
@@ -211,6 +217,6 @@ func (s *Server) handleWallet(w http.ResponseWriter, r *http.Request) {
 		"address":   addr,
 		"network":   "base",
 		"token":     "USDC",
-		"contract":  "0x833589fCD6eDb6E08F4c7C32E4fB18E2d5ECfB8",
+		"contract":  "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
 	})
 }
