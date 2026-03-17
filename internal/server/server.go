@@ -17,6 +17,7 @@ type Server struct {
 		IsInitialized() bool
 		GetFromAddress() string
 		SendUSDC(toAddr string, amount float64) (string, error)
+		IsValidAddress(addr string) bool
 	}
 }
 

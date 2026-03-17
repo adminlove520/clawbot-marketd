@@ -148,6 +148,22 @@ func (db *DB) Init() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
+
+	-- 直接转账红包
+	CREATE TABLE IF NOT EXISTS direct_red_packets (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		sender_id INTEGER NOT NULL,
+		sender_name TEXT,
+		to_address TEXT NOT NULL,
+		to_name TEXT,
+		amount REAL NOT NULL,
+		status TEXT DEFAULT 'pending',
+		tx_hash TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		sent_at DATETIME,
+		confirmed_at DATETIME
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_logs_created ON operation_logs(created_at);
 	`
 	_, err := db.Exec(schema)
